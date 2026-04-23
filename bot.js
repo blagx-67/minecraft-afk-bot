@@ -1,5 +1,4 @@
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const config = require('./config');
 require('dotenv').config();
 
@@ -13,11 +12,7 @@ const botOptions = {
 
 const bot = mineflayer.createBot(botOptions);
 
-// Load pathfinder plugin
-bot.loadPlugin(pathfinder);
-
 // Track bot state
-let isMoving = false;
 let isSleeping = false;
 
 // ============== EVENTS ==============
@@ -48,48 +43,39 @@ bot.on('spawn', () => {
 // ============== AUTO-SLEEP ==============
 
 function findAndUseBed() {
-  if (!bot.pathfinder) {
-    console.log('⚠️ Pathfinder not ready yet');
-    return;
-  }
-
-  const beds = bot.findBlocks({
-    matching: (block) => {
-      const name = block.name;
-      return name && name.includes('bed');
-    },
-    maxDistance: config.bedSearchRadius,
-    count: 1
-  });
-
-  if (beds.length > 0) {
-    const bedPos = beds[0];
-    const bedBlock = bot.blockAt(bedPos);
-    
-    if (!bedBlock) {
-      console.log('⚠️ Bed block not found');
-      return;
-    }
-    
-    // Move to bed and sleep
-    bot.pathfinder.goto(bedBlock.position, () => {
-      bot.sleep(bedBlock, (err) => {
-        if (!err) {
-          console.log('🛏️ Sleeping...');
-          isSleeping = true;
-          setTimeout(() => {
-            bot.wake((err) => {
-              if (!err) {
-                console.log('⏰ Woke up!');
-                isSleeping = false;
-              }
-            });
-          }, config.sleepDuration);
-        } else {
-          console.log('⚠️ Could not sleep:', err.message);
-        }
-      });
+  try {
+    const beds = bot.findBlocks({
+      matching: (block) => {
+        const name = block.name;
+        return name && name.includes('bed');
+      },
+      maxDistance: config.bedSearchRadius,
+      count: 1
     });
+
+    if (beds.length > 0) {
+      const bedPos = beds[0];
+      const bedBlock = bot.blockAt(bedPos);
+      
+      if (bedBlock) {
+        bot.sleep(bedBlock, (err) => {
+          if (!err) {
+            console.log('🛏️ Sleeping...');
+            isSleeping = true;
+            setTimeout(() => {
+              bot.wake((err) => {
+                if (!err) {
+                  console.log('⏰ Woke up!');
+                  isSleeping = false;
+                }
+              });
+            }, config.sleepDuration);
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.log('⚠️ Sleep error:', err.message);
   }
 }
 
@@ -97,10 +83,12 @@ function findAndUseBed() {
 
 function performJump() {
   try {
-    bot.entity.velocity.y = 0.42; // Jump velocity
-    console.log('⬆️ Jump!');
+    if (bot.entity) {
+      bot.entity.velocity.y = 0.42;
+      console.log('⬆️ Jump!');
+    }
   } catch (err) {
-    console.log('⚠️ Jump failed:', err.message);
+    console.log('⚠️ Jump error:', err.message);
   }
 }
 
@@ -114,7 +102,7 @@ function moveForward() {
     }, config.moveDuration);
     console.log('🚶 Moving Forward...');
   } catch (err) {
-    console.log('⚠️ Move forward failed:', err.message);
+    console.log('⚠️ Move error:', err.message);
   }
 }
 
@@ -126,7 +114,7 @@ function moveBackward() {
     }, config.moveDuration);
     console.log('🚶 Moving Backward...');
   } catch (err) {
-    console.log('⚠️ Move backward failed:', err.message);
+    console.log('⚠️ Move error:', err.message);
   }
 }
 
@@ -138,7 +126,7 @@ function strafeLeft() {
     }, config.moveDuration);
     console.log('🚶 Strafing Left...');
   } catch (err) {
-    console.log('⚠️ Strafe left failed:', err.message);
+    console.log('⚠️ Strafe error:', err.message);
   }
 }
 
@@ -150,7 +138,7 @@ function strafeRight() {
     }, config.moveDuration);
     console.log('🚶 Strafing Right...');
   } catch (err) {
-    console.log('⚠️ Strafe right failed:', err.message);
+    console.log('⚠️ Strafe error:', err.message);
   }
 }
 
@@ -193,7 +181,6 @@ function startAFKRoutine() {
 
 // ============== COMMANDS ==============
 
-// Optional: Chat commands
 bot.on('message', (message) => {
   const msg = message.toString();
   
