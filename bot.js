@@ -14,6 +14,7 @@ const bot = mineflayer.createBot(botOptions);
 
 // Track bot state
 let isSleeping = false;
+let lastHealth = 20;
 
 // ============== EVENTS ==============
 
@@ -38,6 +39,33 @@ bot.on('kicked', (reason) => {
 
 bot.on('spawn', () => {
   console.log('🌍 Bot spawned into the world!');
+});
+
+// ============== DAMAGE DETECTION & RECOVERY ==============
+
+bot.on('health', () => {
+  const currentHealth = bot.health;
+  
+  // If bot took damage
+  if (currentHealth < lastHealth) {
+    console.log(`❤️ Bot took damage! Health: ${currentHealth}/20`);
+    
+    // Stop sneaking and jump to recover
+    if (bot.entity) {
+      bot.setControlState('sneak', false);
+      bot.entity.velocity.y = 0.42; // Jump to recover
+      console.log('⬆️ Jumping to recover from damage!');
+      
+      // Resume activity after 1 second
+      setTimeout(() => {
+        if (!isSleeping) {
+          performSneak();
+        }
+      }, 1000);
+    }
+  }
+  
+  lastHealth = currentHealth;
 });
 
 // ============== AUTO-SLEEP ==============
@@ -83,7 +111,7 @@ function findAndUseBed() {
 
 function performJump() {
   try {
-    if (bot.entity) {
+    if (bot.entity && !isSleeping) {
       bot.entity.velocity.y = 0.42;
       console.log('⬆️ Jump!');
     }
@@ -92,53 +120,38 @@ function performJump() {
   }
 }
 
-// ============== MOVEMENT ==============
+// ============== SNEAKING ==============
 
-function moveForward() {
+function performSneak() {
   try {
-    bot.setControlState('forward', true);
-    setTimeout(() => {
-      bot.setControlState('forward', false);
-    }, config.moveDuration);
-    console.log('🚶 Moving Forward...');
+    if (bot.entity && !isSleeping) {
+      bot.setControlState('sneak', true);
+      console.log('🤫 Sneaking...');
+      
+      // Sneak for 2 seconds then stop
+      setTimeout(() => {
+        bot.setControlState('sneak', false);
+      }, 2000);
+    }
   } catch (err) {
-    console.log('⚠️ Move error:', err.message);
+    console.log('⚠️ Sneak error:', err.message);
   }
 }
 
-function moveBackward() {
-  try {
-    bot.setControlState('back', true);
-    setTimeout(() => {
-      bot.setControlState('back', false);
-    }, config.moveDuration);
-    console.log('🚶 Moving Backward...');
-  } catch (err) {
-    console.log('⚠️ Move error:', err.message);
-  }
-}
+// ============== HEAD MOVEMENT ==============
 
-function strafeLeft() {
+function moveHead() {
   try {
-    bot.setControlState('left', true);
-    setTimeout(() => {
-      bot.setControlState('left', false);
-    }, config.moveDuration);
-    console.log('🚶 Strafing Left...');
+    if (bot.entity && !isSleeping) {
+      // Random head rotation (pitch and yaw)
+      const yaw = Math.random() * Math.PI * 2;
+      const pitch = (Math.random() - 0.5) * Math.PI;
+      
+      bot.look(yaw, pitch);
+      console.log('🔄 Head moved');
+    }
   } catch (err) {
-    console.log('⚠️ Strafe error:', err.message);
-  }
-}
-
-function strafeRight() {
-  try {
-    bot.setControlState('right', true);
-    setTimeout(() => {
-      bot.setControlState('right', false);
-    }, config.moveDuration);
-    console.log('🚶 Strafing Right...');
-  } catch (err) {
-    console.log('⚠️ Strafe error:', err.message);
+    console.log('⚠️ Head movement error:', err.message);
   }
 }
 
@@ -147,21 +160,26 @@ function strafeRight() {
 function startAFKRoutine() {
   console.log('🎮 Starting AFK routine...');
 
-  // Jump every 30 seconds
+  // Jump every 15 seconds
   setInterval(() => {
     if (!isSleeping && bot.entity) {
       performJump();
     }
-  }, config.jumpInterval);
+  }, 15000);
 
-  // Movement routine every 45 seconds
+  // Sneak every 20 seconds
   setInterval(() => {
     if (!isSleeping && bot.entity) {
-      const movements = [moveForward, moveBackward, strafeLeft, strafeRight];
-      const randomMovement = movements[Math.floor(Math.random() * movements.length)];
-      randomMovement();
+      performSneak();
     }
-  }, config.movementInterval);
+  }, 20000);
+
+  // Move head every 10 seconds
+  setInterval(() => {
+    if (!isSleeping && bot.entity) {
+      moveHead();
+    }
+  }, 10000);
 
   // Sleep routine every 5 minutes (if enabled)
   if (config.autoSleep) {
