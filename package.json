@@ -1,0 +1,25 @@
+{
+  "name": "minecraft-afk-bot",
+  "version": "1.0.0",
+  "description": "A Minecraft AFK bot using Mineflayer with auto-sleep, jumping, and movement",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node bot.js"
+  },
+  "keywords": [
+    "minecraft",
+    "bot",
+    "mineflayer",
+    "afk"
+  ],
+  "author": "blagx-67",
+  "license": "MIT",
+  "dependencies": {
+    "mineflayer": "^4.16.0",
+    "dotenv": "^16.0.3"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
