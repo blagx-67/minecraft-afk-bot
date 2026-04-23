@@ -14,6 +14,7 @@
     "afk"
   ],
   "author": "blagx-67",
+
   "license": "MIT",
   "dependencies": {
     "mineflayer": "^4.16.0",
