@@ -1,4 +1,5 @@
 const mineflayer = require('mineflayer');
+const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const config = require('./config');
 require('dotenv').config();
 
@@ -11,6 +12,9 @@ const botOptions = {
 };
 
 const bot = mineflayer.createBot(botOptions);
+
+// Load pathfinder plugin
+bot.loadPlugin(pathfinder);
 
 // Track bot state
 let isMoving = false;
@@ -44,6 +48,11 @@ bot.on('spawn', () => {
 // ============== AUTO-SLEEP ==============
 
 function findAndUseBed() {
+  if (!bot.pathfinder) {
+    console.log('⚠️ Pathfinder not ready yet');
+    return;
+  }
+
   const beds = bot.findBlocks({
     matching: (block) => {
       const name = block.name;
@@ -57,8 +66,13 @@ function findAndUseBed() {
     const bedPos = beds[0];
     const bedBlock = bot.blockAt(bedPos);
     
+    if (!bedBlock) {
+      console.log('⚠️ Bed block not found');
+      return;
+    }
+    
     // Move to bed and sleep
-    bot.pathfinder.goto(new (require('vec3'))(bedPos.x, bedPos.y, bedPos.z), () => {
+    bot.pathfinder.goto(bedBlock.position, () => {
       bot.sleep(bedBlock, (err) => {
         if (!err) {
           console.log('🛏️ Sleeping...');
@@ -71,6 +85,8 @@ function findAndUseBed() {
               }
             });
           }, config.sleepDuration);
+        } else {
+          console.log('⚠️ Could not sleep:', err.message);
         }
       });
     });
@@ -80,42 +96,62 @@ function findAndUseBed() {
 // ============== JUMPING ==============
 
 function performJump() {
-  bot.entity.velocity.y = 0.42; // Jump velocity
-  console.log('⬆️ Jump!');
+  try {
+    bot.entity.velocity.y = 0.42; // Jump velocity
+    console.log('⬆️ Jump!');
+  } catch (err) {
+    console.log('⚠️ Jump failed:', err.message);
+  }
 }
 
 // ============== MOVEMENT ==============
 
 function moveForward() {
-  bot.setControlState('forward', true);
-  setTimeout(() => {
-    bot.setControlState('forward', false);
-  }, config.moveDuration);
-  console.log('🚶 Moving Forward...');
+  try {
+    bot.setControlState('forward', true);
+    setTimeout(() => {
+      bot.setControlState('forward', false);
+    }, config.moveDuration);
+    console.log('🚶 Moving Forward...');
+  } catch (err) {
+    console.log('⚠️ Move forward failed:', err.message);
+  }
 }
 
 function moveBackward() {
-  bot.setControlState('back', true);
-  setTimeout(() => {
-    bot.setControlState('back', false);
-  }, config.moveDuration);
-  console.log('🚶 Moving Backward...');
+  try {
+    bot.setControlState('back', true);
+    setTimeout(() => {
+      bot.setControlState('back', false);
+    }, config.moveDuration);
+    console.log('🚶 Moving Backward...');
+  } catch (err) {
+    console.log('⚠️ Move backward failed:', err.message);
+  }
 }
 
 function strafeLeft() {
-  bot.setControlState('left', true);
-  setTimeout(() => {
-    bot.setControlState('left', false);
-  }, config.moveDuration);
-  console.log('🚶 Strafing Left...');
+  try {
+    bot.setControlState('left', true);
+    setTimeout(() => {
+      bot.setControlState('left', false);
+    }, config.moveDuration);
+    console.log('🚶 Strafing Left...');
+  } catch (err) {
+    console.log('⚠️ Strafe left failed:', err.message);
+  }
 }
 
 function strafeRight() {
-  bot.setControlState('right', true);
-  setTimeout(() => {
-    bot.setControlState('right', false);
-  }, config.moveDuration);
-  console.log('🚶 Strafing Right...');
+  try {
+    bot.setControlState('right', true);
+    setTimeout(() => {
+      bot.setControlState('right', false);
+    }, config.moveDuration);
+    console.log('🚶 Strafing Right...');
+  } catch (err) {
+    console.log('⚠️ Strafe right failed:', err.message);
+  }
 }
 
 // ============== AFK ROUTINE ==============
@@ -125,14 +161,14 @@ function startAFKRoutine() {
 
   // Jump every 30 seconds
   setInterval(() => {
-    if (!isSleeping) {
+    if (!isSleeping && bot.entity) {
       performJump();
     }
   }, config.jumpInterval);
 
   // Movement routine every 45 seconds
   setInterval(() => {
-    if (!isSleeping) {
+    if (!isSleeping && bot.entity) {
       const movements = [moveForward, moveBackward, strafeLeft, strafeRight];
       const randomMovement = movements[Math.floor(Math.random() * movements.length)];
       randomMovement();
@@ -148,8 +184,10 @@ function startAFKRoutine() {
 
   // Log status every 2 minutes
   setInterval(() => {
-    const pos = bot.entity.position;
-    console.log(`📊 Status - X: ${Math.round(pos.x)}, Y: ${Math.round(pos.y)}, Z: ${Math.round(pos.z)}, Health: ${bot.health}/20`);
+    if (bot.entity) {
+      const pos = bot.entity.position;
+      console.log(`📊 Status - X: ${Math.round(pos.x)}, Y: ${Math.round(pos.y)}, Z: ${Math.round(pos.z)}, Health: ${bot.health}/20`);
+    }
   }, 120000);
 }
 
