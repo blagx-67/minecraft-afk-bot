@@ -10,6 +10,11 @@ const botOptions = {
   version: config.version
 };
 
+// Add skin if configured
+if (config.skinPath) {
+  botOptions.skinPath = config.skinPath;
+}
+
 let bot;
 let reconnectAttempt = 0;
 const maxReconnectAttempts = 5;
@@ -28,6 +33,9 @@ function createBot() {
   bot.on('login', () => {
     console.log('✅ Bot logged in!');
     console.log(`📍 Position: X=${Math.round(bot.entity.position.x)}, Y=${Math.round(bot.entity.position.y)}, Z=${Math.round(bot.entity.position.z)}`);
+    if (config.skinPath) {
+      console.log(`👤 Skin applied: ${config.skinPath}`);
+    }
     reconnectAttempt = 0; // Reset reconnect counter on successful login
     startAFKRoutine();
   });
@@ -106,8 +114,18 @@ function createBot() {
         const bedBlock = bot.blockAt(bedPos);
         
         if (bedBlock) {
+          // Try to sleep with error handling
           bot.sleep(bedBlock, (err) => {
-            if (!err) {
+            if (err) {
+              // Silently ignore "not night" errors - just try again later
+              if (err.message && err.message.includes('not night')) {
+                // Do nothing, will try again next interval
+              } else if (err.message && err.message.includes('thunderstorm')) {
+                // Do nothing, will try again next interval
+              } else {
+                console.log('⚠️ Sleep error:', err.message);
+              }
+            } else {
               console.log('🛏️ Sleeping...');
               isSleeping = true;
               setTimeout(() => {
