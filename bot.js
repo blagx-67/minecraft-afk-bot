@@ -26,6 +26,8 @@ function createBot() {
 
   // Track bot state
   let isSleeping = false;
+  let isAttemptingSleep = false; // Guard against concurrent sleep attempts
+  let wakeTimeout = null;        // Track wake timer so it can be cancelled
   let lastHealth = 20;
 
   // ============== EVENTS ==============
@@ -36,19 +38,22 @@ function createBot() {
     if (config.skinPath) {
       console.log(`👤 Skin applied: ${config.skinPath}`);
     }
-    reconnectAttempt = 0; // Reset reconnect counter on successful login
+    reconnectAttempt = 0;
     startAFKRoutine();
   });
 
   bot.on('end', (reason) => {
     console.log(`❌ Bot disconnected: ${reason}`);
-    console.log(`🔄 Reconnecting in 30 seconds... (Attempt ${reconnectAttempt + 1})`);
+    isSleeping = false;
+    isAttemptingSleep = false;
+    if (wakeTimeout) {
+      clearTimeout(wakeTimeout);
+      wakeTimeout = null;
+    }
     reconnectAttempt++;
-    
-    // Reconnect after 30 seconds
     setTimeout(() => {
       if (reconnectAttempt <= maxReconnectAttempts) {
-        console.log('🔗 Attempting to reconnect...');
+        console.log(`🔗 Attempting to reconnect... (Attempt ${reconnectAttempt})`);
         createBot();
       } else {
         console.log('❌ Max reconnection attempts reached. Stopping bot.');
@@ -69,22 +74,55 @@ function createBot() {
     console.log('🌍 Bot spawned into the world!');
   });
 
+  // ============== SLEEP / WAKE EVENTS ==============
+  // These fire when the server confirms the state change,
+  // so they are the single source of truth for isSleeping.
+
+  bot.on('sleep', () => {
+    console.log('🛏️ Sleeping...');
+    isSleeping = true;
+    isAttemptingSleep = false;
+
+    // Schedule a wake-up; cancel it if bot wakes naturally first
+    wakeTimeout = setTimeout(async () => {
+      wakeTimeout = null;
+      if (isSleeping) {
+        try {
+          await bot.wake();
+          // 'wake' event below will set isSleeping = false
+        } catch (err) {
+          // Already awake (e.g. night ended) — just sync the flag
+          isSleeping = false;
+          console.log('⏰ Already awake (night ended).');
+        }
+      }
+    }, config.sleepDuration);
+  });
+
+  bot.on('wake', () => {
+    console.log('⏰ Woke up!');
+    isSleeping = false;
+    isAttemptingSleep = false;
+    // Cancel the scheduled wake timer if the server woke us naturally
+    if (wakeTimeout) {
+      clearTimeout(wakeTimeout);
+      wakeTimeout = null;
+    }
+  });
+
   // ============== DAMAGE DETECTION & RECOVERY ==============
 
   bot.on('health', () => {
     const currentHealth = bot.health;
-    
-    // If bot took damage
+
     if (currentHealth < lastHealth) {
       console.log(`❤️ Bot took damage! Health: ${currentHealth}/20`);
-      
-      // Stop sneaking and jump to recover
-      if (bot.entity) {
+
+      if (bot.entity && !isSleeping) {
         bot.setControlState('sneak', false);
-        bot.entity.velocity.y = 0.42; // Jump to recover
+        bot.entity.velocity.y = 0.42;
         console.log('⬆️ Jumping to recover from damage!');
-        
-        // Resume activity after 1 second
+
         setTimeout(() => {
           if (!isSleeping) {
             performSneak();
@@ -92,56 +130,51 @@ function createBot() {
         }, 1000);
       }
     }
-    
+
     lastHealth = currentHealth;
   });
 
   // ============== AUTO-SLEEP ==============
 
-  function findAndUseBed() {
+  async function findAndUseBed() {
+    // Don't try if already sleeping or mid-attempt
+    if (isSleeping || isAttemptingSleep) return;
+
     try {
       const beds = bot.findBlocks({
-        matching: (block) => {
-          const name = block.name;
-          return name && name.includes('bed');
-        },
+        matching: (block) => block.name && block.name.includes('bed'),
         maxDistance: config.bedSearchRadius,
         count: 1
       });
 
-      if (beds.length > 0) {
-        const bedPos = beds[0];
-        const bedBlock = bot.blockAt(bedPos);
-        
-        if (bedBlock) {
-          // Try to sleep with error handling
-          bot.sleep(bedBlock, (err) => {
-            if (err) {
-              // Silently ignore "not night" errors - just try again later
-              if (err.message && err.message.includes('not night')) {
-                // Do nothing, will try again next interval
-              } else if (err.message && err.message.includes('thunderstorm')) {
-                // Do nothing, will try again next interval
-              } else {
-                console.log('⚠️ Sleep error:', err.message);
-              }
-            } else {
-              console.log('🛏️ Sleeping...');
-              isSleeping = true;
-              setTimeout(() => {
-                bot.wake((err) => {
-                  if (!err) {
-                    console.log('⏰ Woke up!');
-                    isSleeping = false;
-                  }
-                });
-              }, config.sleepDuration);
-            }
-          });
-        }
-      }
+      if (beds.length === 0) return;
+
+      const bedBlock = bot.blockAt(beds[0]);
+      if (!bedBlock) return;
+
+      isAttemptingSleep = true;
+
+      // bot.sleep() is Promise-based in Mineflayer v4+
+      await bot.sleep(bedBlock);
+      // Success is handled by the 'sleep' event above
+
     } catch (err) {
-      console.log('⚠️ Sleep error:', err.message);
+      isAttemptingSleep = false;
+
+      // Silently ignore expected "can't sleep" conditions
+      const msg = err.message || '';
+      if (
+        msg.includes('not night') ||
+        msg.includes('thunderstorm') ||
+        msg.includes('too far') ||
+        msg.includes('obstructed') ||
+        msg.includes('can\'t sleep')
+      ) {
+        // Not an error worth logging — just try again next interval
+        return;
+      }
+
+      console.log('⚠️ Sleep error:', msg);
     }
   }
 
@@ -165,8 +198,6 @@ function createBot() {
       if (bot.entity && !isSleeping) {
         bot.setControlState('sneak', true);
         console.log('🤫 Sneaking...');
-        
-        // Sneak for 2 seconds then stop
         setTimeout(() => {
           bot.setControlState('sneak', false);
         }, 2000);
@@ -181,10 +212,8 @@ function createBot() {
   function moveHead() {
     try {
       if (bot.entity && !isSleeping) {
-        // Random head rotation (pitch and yaw)
         const yaw = Math.random() * Math.PI * 2;
         const pitch = (Math.random() - 0.5) * Math.PI;
-        
         bot.look(yaw, pitch);
         console.log('🔄 Head moved');
       }
@@ -198,28 +227,18 @@ function createBot() {
   function startAFKRoutine() {
     console.log('🎮 Starting AFK routine...');
 
-    // Jump every 15 seconds
     const jumpInterval = setInterval(() => {
-      if (!isSleeping && bot.entity) {
-        performJump();
-      }
-    }, 15000);
+      if (!isSleeping && bot.entity) performJump();
+    }, config.jumpInterval || 15000);
 
-    // Sneak every 20 seconds
     const sneakInterval = setInterval(() => {
-      if (!isSleeping && bot.entity) {
-        performSneak();
-      }
-    }, 20000);
+      if (!isSleeping && bot.entity) performSneak();
+    }, config.sneakInterval || 20000);
 
-    // Move head every 10 seconds
     const headInterval = setInterval(() => {
-      if (!isSleeping && bot.entity) {
-        moveHead();
-      }
-    }, 10000);
+      if (!isSleeping && bot.entity) moveHead();
+    }, config.headMoveInterval || 10000);
 
-    // Sleep routine every 5 minutes (if enabled)
     let sleepInterval;
     if (config.autoSleep) {
       sleepInterval = setInterval(() => {
@@ -227,7 +246,6 @@ function createBot() {
       }, config.sleepInterval);
     }
 
-    // Log status every 2 minutes
     const statusInterval = setInterval(() => {
       if (bot.entity) {
         const pos = bot.entity.position;
@@ -235,7 +253,6 @@ function createBot() {
       }
     }, 120000);
 
-    // Clear intervals on disconnect
     bot.once('end', () => {
       clearInterval(jumpInterval);
       clearInterval(sneakInterval);
@@ -249,7 +266,6 @@ function createBot() {
 
   bot.on('message', (message) => {
     const msg = message.toString();
-    
     if (msg.includes('stop')) {
       bot.quit();
       console.log('👋 Bot stopped by command');
